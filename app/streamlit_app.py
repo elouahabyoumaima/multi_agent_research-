@@ -6,7 +6,7 @@ import streamlit as st
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 ACCENT = "#10a37f"
 
-st.set_page_config(page_title="Research Assistant", page_icon="🔎", layout="centered")
+st.set_page_config(page_title="Research Assistant", page_icon="", layout="centered")
 
 st.markdown(f"""
 <style>
@@ -42,7 +42,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("### 💡 Exemples")
+    st.markdown("###  Exemples")
     st.markdown(
         "- Quels sont les avantages de Rust par rapport à Go ?\n"
         "- Quel est le meilleur framework backend en 2026 ?\n"
