@@ -6,3 +6,9 @@ python-dotenv
 tavily-python
 mcp
 httpx
+sqlalchemy
+bcrypt
+python-jose[cryptography]
+python-multipart
+fpdf2
+python-docx
