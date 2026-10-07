@@ -37,3 +37,17 @@ def decode_access_token(token: str) -> str | None:
         return payload.get("sub")
     except JWTError:
         return None
+import random
+from datetime import datetime
+
+
+def generate_verification_code() -> str:
+    """Genere un code a 6 chiffres pour la verification email."""
+    return str(random.randint(100000, 999999))
+
+
+def is_code_expired(expiry: datetime | None) -> bool:
+    """Verifie si le code de verification a expire."""
+    if expiry is None:
+        return True
+    return datetime.utcnow() > expiry

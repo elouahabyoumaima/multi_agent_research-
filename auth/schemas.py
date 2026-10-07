@@ -3,7 +3,15 @@ from pydantic import BaseModel
 
 class SignupRequest(BaseModel):
     username: str
+    email: str
+    phone: str | None = None
     password: str
+    password_confirm: str
+
+
+class VerifyRequest(BaseModel):
+    email: str
+    code: str
 
 
 class LoginRequest(BaseModel):

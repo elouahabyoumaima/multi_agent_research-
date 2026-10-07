@@ -54,7 +54,50 @@ def auth_headers():
 # ---------------------------------------------------------------------------
 import textwrap
 
+def clean_markdown_for_pdf(text):
+    # remplace les caracteres unicode courants par leur equivalent ASCII
+    # (evite le `?` que latin-1 mettrait a la place)
+    replacements = {
+        "\u2019": "'", "\u2018": "'",
+        "\u201c": '"', "\u201d": '"',
+        "\u2013": "-", "\u2014": "-",
+        "\u2026": "...",
+        "\u00a0": " ",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    lines = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+
+        # separateurs de tableau markdown "|---|---|" -> on saute
+        if stripped.replace("|", "").replace("-", "").replace(":", "").strip() == "" and "|" in stripped:
+            continue
+
+        # titres "# ", "## ", "### " -> on garde le texte, en majuscules
+        if stripped.startswith("#"):
+            clean = stripped.lstrip("#").strip()
+            lines.append("")
+            lines.append(clean.upper())
+            lines.append("")
+            continue
+
+        # gras/italique markdown -> on enleve juste les symboles
+        clean = stripped.replace("**", "").replace("*", "")
+        # separateur horizontal "---"
+        if clean == "---":
+            lines.append("-" * 50)
+            continue
+
+        lines.append(clean)
+
+    return "\n".join(lines)
+
+
 def report_to_pdf(report_text):
+    cleaned_text = clean_markdown_for_pdf(report_text)
+
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
@@ -62,9 +105,8 @@ def report_to_pdf(report_text):
 
     usable_width = pdf.w - pdf.l_margin - pdf.r_margin
 
-    for line in report_text.split("\n"):
+    for line in cleaned_text.split("\n"):
         safe_line = line.encode("latin-1", "replace").decode("latin-1")
-        safe_line = safe_line.replace("?", " ") if safe_line.strip("?") == "" else safe_line
 
         if not safe_line.strip():
             pdf.ln(4)

@@ -4,9 +4,15 @@ from fastapi import Depends, FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
+from datetime import datetime, timedelta
+
 from auth.database import get_db, init_db, User, ResearchHistory
-from auth.schemas import SignupRequest, LoginRequest, TokenResponse, ResearchHistoryItem
-from auth.security import hash_password, verify_password, create_access_token, decode_access_token
+from auth.schemas import SignupRequest, LoginRequest, TokenResponse, ResearchHistoryItem, VerifyRequest
+from auth.security import (
+    hash_password, verify_password, create_access_token, decode_access_token,
+    generate_verification_code, is_code_expired,
+)
+from auth.email_sender import send_verification_email
 from core.orchestrator import run_research_pipeline
 from pydantic import BaseModel
 
@@ -59,11 +65,60 @@ def signup(request: SignupRequest, db: Session = Depends(get_db)):
     return TokenResponse(access_token=token)
 
 
-@app.post("/auth/login", response_model=TokenResponse)
-def login(request: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == request.username).first()
-    if not user or not verify_password(request.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Identifiants incorrects")
+@app.post("/auth/signup")
+def signup(request: SignupRequest, db: Session = Depends(get_db)):
+    if request.password != request.password_confirm:
+        raise HTTPException(status_code=400, detail="Les mots de passe ne correspondent pas")
+
+    existing_username = db.query(User).filter(User.username == request.username).first()
+    if existing_username:
+        raise HTTPException(status_code=400, detail="Ce nom d'utilisateur existe deja")
+
+    existing_email = db.query(User).filter(User.email == request.email).first()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="Cet email est deja utilise")
+
+    code = generate_verification_code()
+    expiry = datetime.utcnow() + timedelta(minutes=10)
+
+    user = User(
+        username=request.username,
+        email=request.email,
+        phone=request.phone,
+        hashed_password=hash_password(request.password),
+        is_verified=False,
+        verification_code=code,
+        verification_code_expiry=expiry,
+    )
+    db.add(user)
+    db.commit()
+
+    email_sent = send_verification_email(request.email, code)
+
+    return {
+        "message": "Compte cree. Verifiez votre email pour activer le compte.",
+        "email_sent": email_sent,
+    }
+
+
+@app.post("/auth/verify", response_model=TokenResponse)
+def verify_email(request: VerifyRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+
+    if user.is_verified:
+        raise HTTPException(status_code=400, detail="Compte deja verifie")
+
+    if is_code_expired(user.verification_code_expiry):
+        raise HTTPException(status_code=400, detail="Code expire, demandez un nouveau code")
+
+    if user.verification_code != request.code:
+        raise HTTPException(status_code=400, detail="Code incorrect")
+
+    user.is_verified = True
+    user.verification_code = None
+    db.commit()
 
     token = create_access_token(user.username)
     return TokenResponse(access_token=token)

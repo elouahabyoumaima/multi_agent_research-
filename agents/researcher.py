@@ -32,7 +32,9 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "fetch_url",
-            "description": "Fetch and read the content of a specific, known URL. Use this ONLY when a precise URL is given or clearly identifiable, not for general searches.",
+            "description": "Fetch and read the full content of ONE specific URL that is already known "
+                           "(e.g. from a previous search result). The tool name is exactly 'fetch_url'. "
+                           "Do not use for general searches.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -62,14 +64,21 @@ def research(sub_question: str) -> dict:
     ]
     sources = []
 
-    for _ in range(5):  # max 3 etapes (appel outil -> reponse) par securite
-        response = _client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
-            temperature=0,
-        )
+    for _ in range(5):  # max 5 etapes (appel outil -> reponse) par securite
+        try:
+            response = _client.chat.completions.create(
+                model=MODEL,
+                messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
+                temperature=0,
+            )
+        except Exception as e:
+            return {
+                "sub_question": sub_question,
+                "summary": f"Erreur lors de la recherche: {e}",
+                "sources": sources,
+            }
         msg = response.choices[0].message
 
         if not msg.tool_calls:
