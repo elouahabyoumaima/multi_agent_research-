@@ -1,10 +1,12 @@
 fastapi
 uvicorn
 streamlit
+requests
 groq
 python-dotenv
 tavily-python
 mcp
+mcp-server-fetch
 httpx
 sqlalchemy
 bcrypt

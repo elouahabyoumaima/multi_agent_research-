@@ -1,20 +1,21 @@
 import json
+from datetime import datetime, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from datetime import datetime, timedelta
-
 from auth.database import get_db, init_db, User, ResearchHistory
-from auth.schemas import SignupRequest, LoginRequest, TokenResponse, ResearchHistoryItem, VerifyRequest
+from auth.schemas import (
+    SignupRequest, LoginRequest, TokenResponse, ResearchHistoryItem, VerifyRequest,
+)
 from auth.security import (
     hash_password, verify_password, create_access_token, decode_access_token,
     generate_verification_code, is_code_expired,
 )
 from auth.email_sender import send_verification_email
 from core.orchestrator import run_research_pipeline
-from pydantic import BaseModel
 
 app = FastAPI(title="Multi-Agent Research Assistant")
 
@@ -35,8 +36,11 @@ class ResearchRequest(BaseModel):
     question: str
 
 
+class ResendRequest(BaseModel):
+    email: str
+
+
 def get_current_user(authorization: str = Header(None), db: Session = Depends(get_db)) -> User:
-    """Dependency: extrait et valide le JWT du header Authorization, renvoie l'utilisateur."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Token manquant")
 
@@ -51,36 +55,18 @@ def get_current_user(authorization: str = Header(None), db: Session = Depends(ge
     return user
 
 
-@app.post("/auth/signup", response_model=TokenResponse)
-def signup(request: SignupRequest, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.username == request.username).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Ce nom d'utilisateur existe deja")
-
-    user = User(username=request.username, hashed_password=hash_password(request.password))
-    db.add(user)
-    db.commit()
-
-    token = create_access_token(user.username)
-    return TokenResponse(access_token=token)
-
-
 @app.post("/auth/signup")
 def signup(request: SignupRequest, db: Session = Depends(get_db)):
     if request.password != request.password_confirm:
         raise HTTPException(status_code=400, detail="Les mots de passe ne correspondent pas")
 
-    existing_username = db.query(User).filter(User.username == request.username).first()
-    if existing_username:
+    if db.query(User).filter(User.username == request.username).first():
         raise HTTPException(status_code=400, detail="Ce nom d'utilisateur existe deja")
 
-    existing_email = db.query(User).filter(User.email == request.email).first()
-    if existing_email:
+    if db.query(User).filter(User.email == request.email).first():
         raise HTTPException(status_code=400, detail="Cet email est deja utilise")
 
     code = generate_verification_code()
-    expiry = datetime.utcnow() + timedelta(minutes=10)
-
     user = User(
         username=request.username,
         email=request.email,
@@ -88,7 +74,7 @@ def signup(request: SignupRequest, db: Session = Depends(get_db)):
         hashed_password=hash_password(request.password),
         is_verified=False,
         verification_code=code,
-        verification_code_expiry=expiry,
+        verification_code_expiry=datetime.utcnow() + timedelta(minutes=10),
     )
     db.add(user)
     db.commit()
@@ -113,15 +99,43 @@ def verify_email(request: VerifyRequest, db: Session = Depends(get_db)):
     if is_code_expired(user.verification_code_expiry):
         raise HTTPException(status_code=400, detail="Code expire, demandez un nouveau code")
 
-    if user.verification_code != request.code:
+    if user.verification_code != request.code.strip():
         raise HTTPException(status_code=400, detail="Code incorrect")
 
     user.is_verified = True
     user.verification_code = None
+    user.verification_code_expiry = None
     db.commit()
 
-    token = create_access_token(user.username)
-    return TokenResponse(access_token=token)
+    return TokenResponse(access_token=create_access_token(user.username))
+
+
+@app.post("/auth/resend")
+def resend_code(request: ResendRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    if user.is_verified:
+        raise HTTPException(status_code=400, detail="Compte deja verifie")
+
+    code = generate_verification_code()
+    user.verification_code = code
+    user.verification_code_expiry = datetime.utcnow() + timedelta(minutes=10)
+    db.commit()
+
+    return {"email_sent": send_verification_email(user.email, code)}
+
+
+@app.post("/auth/login", response_model=TokenResponse)
+def login(request: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == request.username).first()
+    if not user or not verify_password(request.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Identifiants incorrects")
+
+    if not user.is_verified:
+        raise HTTPException(status_code=403, detail="Compte non verifie. Verifiez votre email.")
+
+    return TokenResponse(access_token=create_access_token(user.username))
 
 
 @app.post("/research")
