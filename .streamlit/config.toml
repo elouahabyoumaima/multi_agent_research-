@@ -1,0 +1,7 @@
+mkdir .streamlit -Force
+@"
+[theme]
+primaryColor = "#0ea5e9"
+"@ | Out-File -Encoding ascii .streamlit\config.toml
+git add .
+git status
