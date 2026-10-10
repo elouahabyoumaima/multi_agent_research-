@@ -23,6 +23,16 @@ if "username" not in st.session_state:
     st.session_state.username = None
 if "theme" not in st.session_state:
     st.session_state.theme = "light"
+if "draft" not in st.session_state:
+    st.session_state.draft = ""
+if "box_version" not in st.session_state:
+    st.session_state.box_version = 0
+
+
+def reset_box(text=""):
+    # Vide ou pre-remplit la zone de question (nouveau chat / modifier)
+    st.session_state.draft = text
+    st.session_state.box_version += 1
 
 
 def auth_headers():
@@ -62,9 +72,9 @@ CSS_TEMPLATE = """
     [data-testid="stHeader"] *, [data-testid="stToolbar"] * { color: __TEXT__ !important; }
     [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { color: __MUTED__ !important; }
 
-    .main-header { text-align: center; padding: 1.2rem 0 1.5rem 0; }
-    .main-header h1 { color: __TEXT__; font-size: 1.6rem; font-weight: 600; margin-bottom: 0.2rem; }
-    .main-header p { color: __MUTED__; font-size: 0.9rem; }
+    .main-header { text-align: center; padding: 1.5rem 0 2rem 0; }
+    .stApp .main-header h1 { color: __TEXT__; font-size: 2.6rem !important; font-weight: 700; line-height: 1.15; margin: 0; padding: 0; }
+    @media (max-width: 640px) { .stApp .main-header h1 { font-size: 1.8rem !important; } }
 
     .stApp .step-badge {
         display: inline-block;
@@ -108,6 +118,63 @@ CSS_TEMPLATE = """
         border: 1px solid __ACCENT__ !important;
     }
     .stButton > button[kind="primary"] p, button[kind="primaryFormSubmit"] p { color: #FFFFFF !important; }
+
+    /* historique: boutons bleu ciel, texte blanc */
+    .stApp div[class*="st-key-hist_"] button {
+        background-color: __ACCENT__ !important;
+        border: 1px solid __ACCENT__ !important;
+    }
+    .stApp div[class*="st-key-hist_"] button p,
+    .stApp div[class*="st-key-hist_"] button span { color: #FFFFFF !important; }
+    .stApp div[class*="st-key-hist_"] button:hover {
+        background-color: #0284c7 !important;
+        border-color: #0284c7 !important;
+    }
+
+    /* contour bleu au focus (au lieu du rouge) */
+    div[data-baseweb="textarea"]:focus-within, div[data-baseweb="input"]:focus-within,
+    div[data-baseweb="base-input"]:focus-within {
+        border-color: __ACCENT__ !important;
+        box-shadow: 0 0 0 1px __ACCENT__ !important;
+    }
+    input, textarea { caret-color: __ACCENT__; }
+
+    /* champs: fond + bordure (versions recentes de Streamlit: data-testid) */
+    [data-testid="stTextInputRootElement"], [data-testid="stTextAreaRootElement"],
+    [data-testid="stNumberInputContainer"],
+    div[data-baseweb="input"], div[data-baseweb="textarea"], div[data-baseweb="base-input"] {
+        background-color: __INPUT__ !important;
+        border: 1px solid __BORDER__ !important;
+    }
+    [data-testid="stTextInputRootElement"]:focus-within, [data-testid="stTextAreaRootElement"]:focus-within,
+    [data-testid="stNumberInputContainer"]:focus-within {
+        border-color: __ACCENT__ !important;
+        box-shadow: 0 0 0 1px __ACCENT__ !important;
+    }
+    /* bouton oeil du mot de passe */
+    [data-testid="stTextInputRootElement"] button, div[data-baseweb="input"] button { background-color: __INPUT__ !important; }
+    [data-testid="stTextInputRootElement"] button svg, div[data-baseweb="input"] button svg {
+        color: __MUTED__ !important; fill: __MUTED__ !important;
+    }
+
+    /* tout ce qui etait rouge -> bleu ciel */
+    div[data-baseweb="input"]:focus-within, div[data-baseweb="input"]:focus-within > div,
+    div[data-baseweb="textarea"]:focus-within, div[data-baseweb="textarea"]:focus-within > div,
+    div[data-baseweb="base-input"]:focus-within, div[data-baseweb="select"] > div:focus-within {
+        border-color: __ACCENT__ !important;
+        outline-color: __ACCENT__ !important;
+    }
+    div[data-baseweb="tab-highlight"] { background-color: __ACCENT__ !important; }
+    [role="tab"][aria-selected="true"] > div:nth-child(2) { background-color: __ACCENT__ !important; }
+    [role="tab"][aria-selected="true"], [role="tab"][aria-selected="true"] p { color: __ACCENT__ !important; }
+    button[data-baseweb="tab"][aria-selected="true"] p { color: __ACCENT__ !important; }
+    input:focus, textarea:focus, input:focus-visible, textarea:focus-visible {
+        outline: none !important; box-shadow: none !important;
+    }
+    button:focus-visible { outline: 2px solid __ACCENT__ !important; }
+    .stButton > button:not([kind="primary"]):hover, .stDownloadButton > button:hover {
+        border-color: __ACCENT__ !important;
+    }
 
     /* tableaux markdown */
     .stMarkdown table { border-collapse: collapse; width: 100%; }
@@ -156,7 +223,14 @@ CHAR_FIXES = {
     "\u202f": " ", "\u00a0": " ", "\u2019": "'", "\u2018": "'",
     "\u201c": '"', "\u201d": '"', "\u2026": "...", "\u2192": "->",
     "\u2022": "-",
+    "\u3010": "[", "\u3011": "]",
+    "\u2705": "[OK]", "\u2714": "[OK]", "\u2713": "[OK]",
+    "\u274c": "[X]", "\u2716": "[X]", "\u2717": "[X]",
+    "\u26a0": "!", "\ufe0f": "", "\u200d": "",
 }
+
+# tout emoji/symbole restant (absent d'Arial) est supprime
+EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF]")
 
 
 def _setup_font(pdf):
@@ -179,8 +253,12 @@ def _clean_inline(s):
 
 
 def _prepare(text, unicode_ok):
+    # cellules de tableau contenant seulement un emoji oui/non
+    text = re.sub(r"(?<=\|)\s*[\u2705\u2714\u2713]\ufe0f?\s*(?=\|)", " Oui ", text)
+    text = re.sub(r"(?<=\|)\s*[\u274c\u2716\u2717]\ufe0f?\s*(?=\|)", " Non ", text)
     for old, new in CHAR_FIXES.items():
         text = text.replace(old, new)
+    text = EMOJI_RE.sub("", text)
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     if not unicode_ok:
         text = text.encode("latin-1", "replace").decode("latin-1")
@@ -373,7 +451,6 @@ def login_page():
     header_html = (
         '<div class="main-header">'
         '<h1>Multi-Agent Research Assistant</h1>'
-        '<p>Connecte-toi pour acceder a l assistant et ton historique</p>'
         '</div>'
     )
     st.markdown(header_html, unsafe_allow_html=True)
@@ -481,13 +558,17 @@ def main_page():
     header_html = (
         '<div class="main-header">'
         '<h1>Multi-Agent Research Assistant</h1>'
-        '<p>Planification -> Recherche (web + MCP) -> Synthese</p>'
         '</div>'
     )
     st.markdown(header_html, unsafe_allow_html=True)
 
     with st.sidebar:
         st.markdown("### Utilisateur : " + st.session_state.username)
+        if st.button("➕ Nouveau chat", key="new_chat", type="primary", use_container_width=True):
+            st.session_state.viewing = None
+            st.session_state.last_result = None
+            reset_box("")
+            st.rerun()
         theme_button("theme_main")
         if st.button("Se deconnecter", use_container_width=True):
             st.session_state.token = None
@@ -518,9 +599,18 @@ def main_page():
         item = st.session_state.viewing
         caption_text = "Recherche du " + item["created_at"][:10] + " -- " + str(item["duration_seconds"]) + "s"
         st.caption(caption_text)
-        if st.button("Retour / Nouvelle recherche"):
-            st.session_state.viewing = None
-            st.rerun()
+        st.markdown("**Question :** " + item["question"])
+        col_edit, col_back = st.columns(2)
+        with col_edit:
+            if st.button("✏️ Modifier et relancer", key="edit_question", type="primary", use_container_width=True):
+                st.session_state.viewing = None
+                st.session_state.last_result = None
+                reset_box(item["question"])
+                st.rerun()
+        with col_back:
+            if st.button("← Retour", key="back_btn", use_container_width=True):
+                st.session_state.viewing = None
+                st.rerun()
         st.markdown("---")
         st.markdown(item["report"])
         render_export_buttons(item["report"], "hist_" + str(item["id"]))
@@ -528,6 +618,8 @@ def main_page():
 
     question = st.text_area(
         "Pose ta question de recherche :",
+        value=st.session_state.draft,
+        key="question_box_" + str(st.session_state.box_version),
         height=80,
         placeholder="Ex: Quels sont les avantages de Rust par rapport a Go ?",
     )
