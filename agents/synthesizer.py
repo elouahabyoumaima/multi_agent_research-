@@ -17,6 +17,17 @@ Markdown that answers the original question, synthesizing the information into a
 not just listing the summaries one after another. Include a short "Sources" section at the end listing \
 all unique URLs used.
 
+Strict rules:
+- Use ONLY information present in the research findings. Do not invent numbers, benchmarks, percentages \
+or quotes; if a figure is not in the findings, do not state it (say it is not documented instead).
+- Do NOT add "Sources:" lines under individual sections and do NOT attribute a claim to a named source \
+unless the findings explicitly say so. Put all URLs only in one final "Sources" section.
+- Do NOT use citation markers of any kind (no [1], no \u3010 1 \u3011, no "Reference" column). Tables must not \
+have a column of source numbers.
+- The final "Sources" section is a plain list of the URLs given (one per line). Add no commentary after it \
+(no remark about URLs being unique or listed).
+- Write the report in the same language as the original question.
+
 You have NO tools. Never call any function or tool (no code execution, no search). \
 Reply only with the final report as plain Markdown text."""
 

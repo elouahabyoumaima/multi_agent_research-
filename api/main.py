@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import datetime, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, Header
@@ -15,6 +16,8 @@ from auth.security import (
     generate_verification_code, is_code_expired,
 )
 from auth.email_sender import send_verification_email
+from agents.autonomous import run_agent
+from agents.followup import answer_followup, MAX_QUESTION_CHARS
 from core.orchestrator import run_research_pipeline
 
 app = FastAPI(title="Multi-Agent Research Assistant")
@@ -38,6 +41,14 @@ class ResearchRequest(BaseModel):
 
 class ResendRequest(BaseModel):
     email: str
+
+
+class FollowupRequest(BaseModel):
+    question: str
+    report: str
+    original_question: str = ""
+    history: list[dict] = []   # [{"q": "...", "a": "..."}]
+    use_web: bool = False
 
 
 def get_current_user(authorization: str = Header(None), db: Session = Depends(get_db)) -> User:
@@ -144,7 +155,11 @@ def research_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    result = run_research_pipeline(request.question)
+    # agent autonome; si il plante completement, on retombe sur le pipeline fixe
+    try:
+        result = run_agent(request.question)
+    except Exception:
+        result = run_research_pipeline(request.question)
 
     history_item = ResearchHistory(
         user_id=current_user.id,
@@ -157,6 +172,35 @@ def research_endpoint(
     db.commit()
 
     return result
+
+
+@app.post("/followup")
+def followup_endpoint(request: FollowupRequest, current_user: User = Depends(get_current_user)):
+    question = request.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question vide")
+    if len(question) > MAX_QUESTION_CHARS:
+        raise HTTPException(status_code=400, detail="Question trop longue")
+
+    start = time.time()
+    if request.use_web:
+        context = (
+            "Contexte : recherche precedente sur \u00ab " + request.original_question[:300] + " \u00bb. "
+            "Question de suivi : " + question
+        )
+        result = run_agent(context)
+        return {
+            "answer": result["report"],
+            "sources": result["sources"],
+            "steps": result["steps"],
+            "duration_seconds": round(time.time() - start, 1),
+        }
+
+    try:
+        answer = answer_followup(question, request.report, request.history)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"answer": answer, "sources": [], "steps": [], "duration_seconds": round(time.time() - start, 1)}
 
 
 @app.get("/history", response_model=list[ResearchHistoryItem])

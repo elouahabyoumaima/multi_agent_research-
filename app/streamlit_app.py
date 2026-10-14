@@ -27,12 +27,17 @@ if "draft" not in st.session_state:
     st.session_state.draft = ""
 if "box_version" not in st.session_state:
     st.session_state.box_version = 0
+if "followups" not in st.session_state:
+    st.session_state.followups = {}
+
+MAX_FOLLOWUPS = 5  # limite de questions de suivi par conversation (protege les tokens)
 
 
 def reset_box(text=""):
     # Vide ou pre-remplit la zone de question (nouveau chat / modifier)
     st.session_state.draft = text
     st.session_state.box_version += 1
+    st.session_state.followups.pop("last", None)
 
 
 def auth_headers():
@@ -552,6 +557,60 @@ def login_page():
 
 
 # ---------------------------------------------------------------------------
+# Questions de suivi (meme conversation, avec limite)
+# ---------------------------------------------------------------------------
+def render_followups(conv_key, original_question, report):
+    thread = st.session_state.followups.setdefault(conv_key, [])
+    st.markdown("---")
+    st.markdown("### Questions de suivi")
+
+    for turn in thread:
+        with st.chat_message("user"):
+            st.markdown(turn["q"])
+        with st.chat_message("assistant"):
+            st.markdown(turn["a"])
+
+    remaining = MAX_FOLLOWUPS - len(thread)
+    if remaining <= 0:
+        st.info("Limite atteinte (" + str(MAX_FOLLOWUPS) + " questions de suivi). Clique sur Nouveau chat pour continuer.")
+        return
+
+    st.caption(str(remaining) + " question(s) de suivi restante(s) sur " + str(MAX_FOLLOWUPS))
+    suffix = conv_key + "_" + str(len(thread))
+    with st.form("followup_form_" + suffix, clear_on_submit=True):
+        fq = st.text_area("Pose une question de suivi :", height=70, key="fq_" + suffix, max_chars=1000)
+        use_web = st.checkbox("Chercher sur le web (plus lent)", key="fweb_" + suffix)
+        sent = st.form_submit_button("Envoyer", use_container_width=True, type="primary")
+
+    if sent:
+        if not fq.strip():
+            st.warning("Ecris une question d'abord.")
+            return
+        history = [{"q": t["q"], "a": t["a"][:1500]} for t in thread[-3:]]
+        with st.spinner("Reponse en cours..."):
+            try:
+                resp = requests.post(
+                    API_URL + "/followup",
+                    json={
+                        "question": fq.strip(),
+                        "report": report,
+                        "original_question": original_question,
+                        "history": history,
+                        "use_web": use_web,
+                    },
+                    headers=auth_headers(),
+                    timeout=180,
+                )
+                resp.raise_for_status()
+                answer = resp.json()["answer"]
+            except Exception as e:
+                st.error("Erreur : " + str(e))
+                return
+        thread.append({"q": fq.strip(), "a": answer})
+        st.rerun()
+
+
+# ---------------------------------------------------------------------------
 # Page principale (apres connexion)
 # ---------------------------------------------------------------------------
 def main_page():
@@ -614,6 +673,7 @@ def main_page():
         st.markdown("---")
         st.markdown(item["report"])
         render_export_buttons(item["report"], "hist_" + str(item["id"]))
+        render_followups("hist_" + str(item["id"]), item["question"], item["report"])
         return
 
     question = st.text_area(
@@ -642,6 +702,7 @@ def main_page():
 
             if result:
                 st.session_state.last_result = result
+                st.session_state.followups.pop("last", None)
 
     if st.session_state.get("last_result") and not st.session_state.get("viewing"):
         result = st.session_state.last_result
@@ -649,9 +710,19 @@ def main_page():
         for sq in result["sub_questions"]:
             badge_html = '<span class="step-badge">' + sq[:60] + "...</span>"
             st.markdown(badge_html, unsafe_allow_html=True)
+        steps = result.get("steps") or []
+        if steps:
+            with st.expander("Trace de l'agent (" + str(len(steps)) + " etapes)"):
+                for step in steps:
+                    if step.get("stage") == "synthesis":
+                        line = "- **redaction** -- arret : " + str(step.get("stop_reason", "")) + " (" + str(step.get("seconds", "")) + "s)"
+                    else:
+                        line = "- **" + str(step.get("action", "")) + "** -- " + str(step.get("detail", "")) + " (" + str(step.get("seconds", "")) + "s)"
+                    st.markdown(line)
         st.markdown("---")
         st.markdown(result["report"])
         render_export_buttons(result["report"], "last")
+        render_followups("last", result.get("question", ""), result["report"])
 
 
 # ---------------------------------------------------------------------------
