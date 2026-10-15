@@ -9,6 +9,7 @@ mcp
 mcp-server-fetch
 httpx
 sqlalchemy
+psycopg2-binary
 bcrypt
 python-jose[cryptography]
 python-multipart

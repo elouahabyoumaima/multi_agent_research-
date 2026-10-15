@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from datetime import datetime, timedelta
 
@@ -7,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from auth.database import get_db, init_db, User, ResearchHistory
+from auth.database import get_db, init_db, SessionLocal, User, ResearchHistory
 from auth.schemas import (
     SignupRequest, LoginRequest, TokenResponse, ResearchHistoryItem, VerifyRequest,
 )
@@ -19,6 +20,9 @@ from auth.email_sender import send_verification_email
 from agents.autonomous import run_agent
 from agents.followup import answer_followup, MAX_QUESTION_CHARS
 from core.orchestrator import run_research_pipeline
+
+# En cloud (Render free), l'envoi d'email SMTP est bloque: SKIP_EMAIL_VERIFICATION=true active le compte directement
+SKIP_EMAIL_VERIFICATION = os.getenv("SKIP_EMAIL_VERIFICATION", "").strip().lower() in ("1", "true", "yes")
 
 app = FastAPI(title="Multi-Agent Research Assistant")
 
@@ -83,12 +87,15 @@ def signup(request: SignupRequest, db: Session = Depends(get_db)):
         email=request.email,
         phone=request.phone,
         hashed_password=hash_password(request.password),
-        is_verified=False,
-        verification_code=code,
-        verification_code_expiry=datetime.utcnow() + timedelta(minutes=10),
+        is_verified=SKIP_EMAIL_VERIFICATION,
+        verification_code=None if SKIP_EMAIL_VERIFICATION else code,
+        verification_code_expiry=None if SKIP_EMAIL_VERIFICATION else datetime.utcnow() + timedelta(minutes=10),
     )
     db.add(user)
     db.commit()
+
+    if SKIP_EMAIL_VERIFICATION:
+        return {"message": "Compte cree.", "email_sent": False, "auto_verified": True}
 
     email_sent = send_verification_email(request.email, code)
 
@@ -153,23 +160,30 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 def research_endpoint(
     request: ResearchRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
+    user_id = current_user.id
+
     # agent autonome; si il plante completement, on retombe sur le pipeline fixe
     try:
         result = run_agent(request.question)
     except Exception:
         result = run_research_pipeline(request.question)
 
-    history_item = ResearchHistory(
-        user_id=current_user.id,
-        question=result["question"],
-        report=result["report"],
-        sources=json.dumps(result["sources"]),
-        duration_seconds=int(result["duration_seconds"]),
-    )
-    db.add(history_item)
-    db.commit()
+    # nouvelle session APRES la longue recherche: la connexion ouverte au debut de la requete
+    # peut avoir ete fermee par le serveur (Neon coupe les connexions inactives)
+    db = SessionLocal()
+    try:
+        history_item = ResearchHistory(
+            user_id=user_id,
+            question=result["question"],
+            report=result["report"],
+            sources=json.dumps(result["sources"]),
+            duration_seconds=int(result["duration_seconds"]),
+        )
+        db.add(history_item)
+        db.commit()
+    finally:
+        db.close()
 
     return result
 
