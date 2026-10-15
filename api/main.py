@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from auth.database import get_db, init_db, User, ResearchHistory
+from auth.database import get_db, init_db, SessionLocal, User, ResearchHistory
 from auth.schemas import (
     SignupRequest, LoginRequest, TokenResponse, ResearchHistoryItem, VerifyRequest,
 )
@@ -153,23 +153,30 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 def research_endpoint(
     request: ResearchRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
+    user_id = current_user.id
+
     # agent autonome; si il plante completement, on retombe sur le pipeline fixe
     try:
         result = run_agent(request.question)
     except Exception:
         result = run_research_pipeline(request.question)
 
-    history_item = ResearchHistory(
-        user_id=current_user.id,
-        question=result["question"],
-        report=result["report"],
-        sources=json.dumps(result["sources"]),
-        duration_seconds=int(result["duration_seconds"]),
-    )
-    db.add(history_item)
-    db.commit()
+    # nouvelle session APRES la longue recherche: la connexion ouverte au debut de la requete
+    # peut avoir ete fermee par le serveur (Neon coupe les connexions inactives)
+    db = SessionLocal()
+    try:
+        history_item = ResearchHistory(
+            user_id=user_id,
+            question=result["question"],
+            report=result["report"],
+            sources=json.dumps(result["sources"]),
+            duration_seconds=int(result["duration_seconds"]),
+        )
+        db.add(history_item)
+        db.commit()
+    finally:
+        db.close()
 
     return result
 
