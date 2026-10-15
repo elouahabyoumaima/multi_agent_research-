@@ -544,11 +544,14 @@ def login_page():
                         }
                         resp = requests.post(API_URL + "/auth/signup", json=payload)
                         if resp.status_code == 200:
-                            if not resp.json().get("email_sent"):
-                                st.warning("Compte cree, mais l'email n'a pas pu etre envoye. Utilise 'Renvoyer le code'.")
-                            st.session_state.pending_email = email
-                            st.session_state.pending_username = username
-                            st.rerun()
+                            if resp.json().get("auto_verified"):
+                                st.success("Compte cree. Va dans l'onglet Connexion pour te connecter.")
+                            else:
+                                if not resp.json().get("email_sent"):
+                                    st.warning("Compte cree, mais l'email n'a pas pu etre envoye. Utilise 'Renvoyer le code'.")
+                                st.session_state.pending_email = email
+                                st.session_state.pending_username = username
+                                st.rerun()
                         else:
                             detail = resp.json().get("detail", "Erreur lors de la creation")
                             st.error(detail if isinstance(detail, str) else "Donnees invalides (verifie l'email et les champs).")

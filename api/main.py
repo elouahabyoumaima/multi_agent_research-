@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from datetime import datetime, timedelta
 
@@ -19,6 +20,9 @@ from auth.email_sender import send_verification_email
 from agents.autonomous import run_agent
 from agents.followup import answer_followup, MAX_QUESTION_CHARS
 from core.orchestrator import run_research_pipeline
+
+# En cloud (Render free), l'envoi d'email SMTP est bloque: SKIP_EMAIL_VERIFICATION=true active le compte directement
+SKIP_EMAIL_VERIFICATION = os.getenv("SKIP_EMAIL_VERIFICATION", "").strip().lower() in ("1", "true", "yes")
 
 app = FastAPI(title="Multi-Agent Research Assistant")
 
@@ -83,12 +87,15 @@ def signup(request: SignupRequest, db: Session = Depends(get_db)):
         email=request.email,
         phone=request.phone,
         hashed_password=hash_password(request.password),
-        is_verified=False,
-        verification_code=code,
-        verification_code_expiry=datetime.utcnow() + timedelta(minutes=10),
+        is_verified=SKIP_EMAIL_VERIFICATION,
+        verification_code=None if SKIP_EMAIL_VERIFICATION else code,
+        verification_code_expiry=None if SKIP_EMAIL_VERIFICATION else datetime.utcnow() + timedelta(minutes=10),
     )
     db.add(user)
     db.commit()
+
+    if SKIP_EMAIL_VERIFICATION:
+        return {"message": "Compte cree.", "email_sent": False, "auto_verified": True}
 
     email_sent = send_verification_email(request.email, code)
 
