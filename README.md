@@ -5,7 +5,7 @@ de ses recherches web, lit les pages pertinentes, prend des notes, puis rédige 
 L'utilisateur peut ensuite poser des **questions de suivi**, retrouver son **historique** et **exporter** le rapport
 (PDF, Word, TXT).
 
-> 🌐 **Démo :** `<LIEN_DE_LA_DEMO>` &nbsp;|&nbsp; 💻 **Code :** https://github.com/elouahabyoumaima/multi_agent_research-
+> 🌐 **Démo :** `(https://multi-agent-research-1.streamlit.app/)` &nbsp;|&nbsp; 💻 **Code :** https://github.com/elouahabyoumaima/multi_agent_research-
 
 <!-- Ajouter ici une capture d'écran ou un GIF : ![Demo](docs/demo.gif) -->
 
