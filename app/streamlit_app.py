@@ -1,6 +1,9 @@
 import io
 import os
 import re
+import sys
+import threading
+import time
 
 import requests
 import streamlit as st
@@ -13,6 +16,33 @@ API_URL = os.getenv("API_URL", "http://localhost:8000")
 ACCENT = "#0ea5e9"  # bleu ciel. Pour du rouge: "#ef4444"
 
 st.set_page_config(page_title="Research Assistant", page_icon="🔎", layout="centered")
+
+
+# ---------------------------------------------------------------------------
+# API embarquee (Streamlit Community Cloud): si EMBEDDED_API=true, l'API FastAPI
+# est lancee dans un thread du meme processus (une seule application a deployer).
+# En local, on lance toujours uvicorn a part: cette variable n'est pas definie.
+# ---------------------------------------------------------------------------
+@st.cache_resource
+def _start_embedded_api():
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import uvicorn
+    from api.main import app as fastapi_app
+
+    config = uvicorn.Config(fastapi_app, host="127.0.0.1", port=8000, log_level="warning")
+    server = uvicorn.Server(config)
+    threading.Thread(target=server.run, daemon=True).start()
+    for _ in range(100):  # attend que l'API reponde (max ~20 s)
+        try:
+            requests.get("http://127.0.0.1:8000/health", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    return True
+
+
+if os.getenv("EMBEDDED_API", "").strip().lower() in ("1", "true", "yes"):
+    _start_embedded_api()
 
 # ---------------------------------------------------------------------------
 # Etat de session

@@ -1,13 +1,3 @@
----
-title: Multi-Agent Research Assistant
-emoji: 🔎
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # 🔎 Multi-Agent Research Assistant
 
 Assistant de recherche basé sur un **agent IA autonome** : à partir d'une simple question, l'agent décide lui-même
@@ -71,7 +61,7 @@ flowchart LR
     FU --> LLM
 ```
 
-Un seul conteneur Docker exécute l'API (port interne 8000) et l'interface Streamlit (port public 7860).
+L'API et l'interface tournent ensemble : dans un même processus sur Streamlit Community Cloud (`EMBEDDED_API=true`), ou dans un même conteneur Docker.
 
 ---
 
@@ -115,7 +105,7 @@ L'agent (`agents/autonomous.py`) fonctionne en boucle : à chaque tour, le modè
 | Base de données | SQLAlchemy, PostgreSQL (Neon) en production, SQLite en local |
 | Authentification | JWT (`python-jose`), hachage `bcrypt`, email SMTP |
 | Export | `fpdf2` (PDF), `python-docx` (Word) |
-| Déploiement | Docker, Hugging Face Spaces |
+| Déploiement | Streamlit Community Cloud, Docker |
 
 ---
 
@@ -180,7 +170,7 @@ L'interface est disponible sur http://localhost:8501 et la documentation de l'AP
 
 ```bash
 docker build -t research-assistant .
-docker run -p 7860:7860 --env-file .env research-assistant
+docker run -p 7860:7860 --env-file .env research-assistant   # interface sur http://localhost:7860
 ```
 
 ---
@@ -199,6 +189,7 @@ Créer un fichier `.env` à la racine (il ne doit **jamais** être versionné) :
 | `DATABASE_URL` | non | URL PostgreSQL. Absente : SQLite local (`research_app.db`) |
 | `SKIP_EMAIL_VERIFICATION` | non | `true` : active le compte sans email (utile en cloud, où le SMTP est bloqué) |
 | `API_URL` | non | URL de l'API pour Streamlit (défaut : `http://localhost:8000`) |
+| `EMBEDDED_API` | non | `true` : lance l'API dans le processus Streamlit (déploiement cloud) |
 
 ---
 
@@ -220,10 +211,10 @@ Créer un fichier `.env` à la racine (il ne doit **jamais** être versionné) :
 ## 🚀 Déploiement
 
 - **Base de données :** PostgreSQL managé sur [Neon](https://neon.tech) (offre gratuite).
-- **Application :** [Hugging Face Spaces](https://huggingface.co/spaces) (SDK Docker). Le conteneur lance l'API
-  et Streamlit ; le port public est `7860` (voir l'en-tête de ce README).
+- **Application :** [Streamlit Community Cloud](https://streamlit.io/cloud) (gratuit, connecté au dépôt GitHub).
+  Avec `EMBEDDED_API=true`, l'API FastAPI est lancée dans le même processus que l'interface : une seule application à déployer.
 - **Secrets :** les clés (`GROQ_API_KEY`, `TAVILY_API_KEY`, `JWT_SECRET_KEY`, `DATABASE_URL`...) sont définies dans
-  les *Settings → Secrets* du Space, jamais dans le code.
+  *Settings → Secrets* de l'application, jamais dans le code.
 - Une configuration `docker-compose.yml` (API + interface + PostgreSQL) est fournie pour un lancement local complet.
 
 ---
