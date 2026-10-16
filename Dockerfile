@@ -8,13 +8,18 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Hugging Face Spaces lance le conteneur avec l'utilisateur 1000
+RUN useradd -m -u 1000 user
+USER user
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH
+WORKDIR /home/user/app
 
-COPY requirements.txt .
+COPY --chown=user requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY --chown=user . .
 
-# par defaut: l'API (l'UI est lancee avec une autre commande, voir docker-compose.yml)
-EXPOSE 8000
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# API (port 8000, interne) + interface Streamlit (port 7860, public)
+EXPOSE 7860
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port 8000 & exec streamlit run app/streamlit_app.py --server.port=7860 --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false"]
