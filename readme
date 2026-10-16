@@ -1,0 +1,264 @@
+---
+title: Multi-Agent Research Assistant
+emoji: 🔎
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
+# 🔎 Multi-Agent Research Assistant
+
+Assistant de recherche basé sur un **agent IA autonome** : à partir d'une simple question, l'agent décide lui-même
+de ses recherches web, lit les pages pertinentes, prend des notes, puis rédige un **rapport structuré et sourcé**.
+L'utilisateur peut ensuite poser des **questions de suivi**, retrouver son **historique** et **exporter** le rapport
+(PDF, Word, TXT).
+
+> 🌐 **Démo :** `<LIEN_DE_LA_DEMO>` &nbsp;|&nbsp; 💻 **Code :** https://github.com/elouahabyoumaima/multi_agent_research-
+
+<!-- Ajouter ici une capture d'écran ou un GIF : ![Demo](docs/demo.gif) -->
+
+---
+
+## Sommaire
+
+1. [Fonctionnalités](#-fonctionnalités)
+2. [Architecture](#-architecture)
+3. [Comment fonctionne l'agent](#-comment-fonctionne-lagent)
+4. [Stack technique](#-stack-technique)
+5. [Structure du projet](#-structure-du-projet)
+6. [Installation en local](#-installation-en-local)
+7. [Variables d'environnement](#-variables-denvironnement)
+8. [API](#-api)
+9. [Déploiement](#-déploiement)
+10. [Sécurité](#-sécurité)
+11. [Limites connues](#-limites-connues)
+12. [Pistes d'amélioration](#-pistes-damélioration)
+
+---
+
+## ✨ Fonctionnalités
+
+- **Agent de recherche autonome** : il choisit ses outils (`web_search`, `fetch_url`, `note`, `finish`) dans une boucle,
+  sous un budget strict (nombre d'actions et durée maximale).
+- **Rapport structuré** en Markdown (tableaux, sections, liste de sources), rédigé uniquement à partir des
+  informations collectées.
+- **Trace de l'agent** visible dans l'interface : chaque action (recherche, page lue, note), sa durée et la raison de l'arrêt.
+- **Questions de suivi** dans la même conversation (limitées à 5), avec option de recherche web supplémentaire.
+- **Comptes utilisateurs** : inscription, connexion JWT, vérification de l'email par code à 6 chiffres.
+- **Historique** des recherches par utilisateur, stocké dans PostgreSQL.
+- **Export** du rapport en **PDF, Word (.docx) et TXT**.
+- **Interface** Streamlit avec thème clair / sombre.
+- **Robustesse** : retries, modèle de secours et repli sur un pipeline fixe si l'agent échoue.
+
+---
+
+## 🏗 Architecture
+
+```mermaid
+flowchart LR
+    U[Utilisateur] --> UI[Streamlit<br/>interface]
+    UI -->|HTTP + JWT| API[FastAPI]
+    API --> AG[Agent autonome]
+    API --> FU[Questions de suivi]
+    API <--> DB[(PostgreSQL<br/>Neon)]
+    AG -->|web_search| TAV[Tavily]
+    AG -->|fetch_url| MCP[Serveur MCP fetch]
+    AG -->|raisonnement| LLM[Groq<br/>gpt-oss-120b]
+    AG --> SYN[Synthétiseur<br/>rapport final]
+    SYN --> LLM
+    FU --> LLM
+```
+
+Un seul conteneur Docker exécute l'API (port interne 8000) et l'interface Streamlit (port public 7860).
+
+---
+
+## 🤖 Comment fonctionne l'agent
+
+L'agent (`agents/autonomous.py`) fonctionne en boucle : à chaque tour, le modèle appelle **un outil** ou termine.
+
+| Outil | Rôle |
+|---|---|
+| `web_search` | Recherche web (Tavily) sur un nouvel angle |
+| `fetch_url` | Lecture complète d'une page via un serveur MCP (`mcp-server-fetch`) |
+| `note` | Bloc-notes : faits clés ou points restant à couvrir |
+| `finish` | L'agent estime avoir assez d'informations |
+
+**Garde-fous appliqués par le code** (et non seulement par le prompt) :
+
+- 3 recherches et 2 lectures de pages au maximum, avec **au moins 2 pages lues** avant de terminer ;
+- budget de temps (75 s) et nombre de tours LLM limité ;
+- rejet des appels en doublon, arrêt après plusieurs refus ;
+- retries sur les erreurs Groq (`tool_use_failed`, rate limit, réseau) ;
+- si l'agent échoue complètement, l'API bascule sur un **pipeline fixe** (planner → recherches parallèles → critique → synthèse).
+
+**Rédaction du rapport** (`agents/synthesizer.py`) : appel au LLM **sans outils**, avec des règles strictes
+(pas de chiffres inventés, pas de citations numérotées, sources regroupées en fin de rapport). Un modèle de secours
+(`llama-3.3-70b-versatile`) prend le relais en cas d'échec.
+
+**Questions de suivi** (`agents/followup.py`) : réponse à partir du rapport existant et des derniers échanges
+(contexte borné pour limiter la consommation de tokens), ou nouvelle recherche si l'option web est activée.
+
+---
+
+## 🧰 Stack technique
+
+| Couche | Technologies |
+|---|---|
+| Interface | Streamlit |
+| Backend | FastAPI, Uvicorn, Pydantic |
+| Agent / LLM | Groq (`openai/gpt-oss-120b`), appels d'outils (function calling) |
+| Recherche web | Tavily API |
+| Lecture de pages | MCP (`mcp`, `mcp-server-fetch`) |
+| Base de données | SQLAlchemy, PostgreSQL (Neon) en production, SQLite en local |
+| Authentification | JWT (`python-jose`), hachage `bcrypt`, email SMTP |
+| Export | `fpdf2` (PDF), `python-docx` (Word) |
+| Déploiement | Docker, Hugging Face Spaces |
+
+---
+
+## 📁 Structure du projet
+
+```
+multi_agent_research-/
+├── agents/
+│   ├── autonomous.py      # agent autonome (boucle d'outils + garde-fous)
+│   ├── followup.py        # questions de suivi
+│   ├── synthesizer.py     # rédaction du rapport
+│   ├── researcher.py      # chercheur du pipeline fixe (repli)
+│   └── critic.py          # agent critique du pipeline fixe
+├── core/
+│   └── orchestrator.py    # pipeline fixe (repli)
+├── tools/
+│   ├── tavily_search.py   # outil web_search
+│   └── mcp_client.py      # outil fetch_url via MCP
+├── auth/
+│   ├── database.py        # modèles SQLAlchemy + connexion (SQLite / PostgreSQL)
+│   ├── security.py        # hachage des mots de passe, JWT
+│   ├── schemas.py         # schémas Pydantic
+│   └── email_sender.py    # envoi du code de vérification (SMTP)
+├── api/
+│   └── main.py            # routes FastAPI
+├── app/
+│   └── streamlit_app.py   # interface utilisateur
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## 💻 Installation en local
+
+**Prérequis :** Python 3.12+, une clé [Groq](https://console.groq.com) et une clé [Tavily](https://tavily.com).
+
+```powershell
+# 1. Cloner le dépôt
+git clone https://github.com/elouahabyoumaima/multi_agent_research-.git
+cd multi_agent_research-
+
+# 2. Environnement virtuel et dépendances
+python -m venv venv
+.\venv\Scripts\Activate.ps1          # Linux / macOS : source venv/bin/activate
+pip install -r requirements.txt
+
+# 3. Configurer le fichier .env (voir la section suivante)
+
+# 4. Lancer l'API (terminal 1)
+uvicorn api.main:app --reload
+
+# 5. Lancer l'interface (terminal 2)
+streamlit run app\streamlit_app.py
+```
+
+L'interface est disponible sur http://localhost:8501 et la documentation de l'API sur http://localhost:8000/docs.
+
+**Avec Docker (API + interface dans un seul conteneur) :**
+
+```bash
+docker build -t research-assistant .
+docker run -p 7860:7860 --env-file .env research-assistant
+```
+
+---
+
+## 🔐 Variables d'environnement
+
+Créer un fichier `.env` à la racine (il ne doit **jamais** être versionné) :
+
+| Variable | Obligatoire | Description |
+|---|---|---|
+| `GROQ_API_KEY` | ✅ | Clé API Groq |
+| `TAVILY_API_KEY` | ✅ | Clé API Tavily |
+| `JWT_SECRET_KEY` | ✅ | Secret de signature des JWT (longue chaîne aléatoire) |
+| `SMTP_EMAIL` | local | Adresse Gmail qui envoie le code de vérification |
+| `SMTP_APP_PASSWORD` | local | Mot de passe d'application Gmail |
+| `DATABASE_URL` | non | URL PostgreSQL. Absente : SQLite local (`research_app.db`) |
+| `SKIP_EMAIL_VERIFICATION` | non | `true` : active le compte sans email (utile en cloud, où le SMTP est bloqué) |
+| `API_URL` | non | URL de l'API pour Streamlit (défaut : `http://localhost:8000`) |
+
+---
+
+## 🔌 API
+
+| Méthode | Route | Description |
+|---|---|---|
+| `POST` | `/auth/signup` | Création de compte |
+| `POST` | `/auth/verify` | Vérification du code reçu par email |
+| `POST` | `/auth/resend` | Renvoi du code |
+| `POST` | `/auth/login` | Connexion (retourne un JWT) |
+| `POST` | `/research` | Lance l'agent sur une question (JWT requis) |
+| `POST` | `/followup` | Question de suivi sur un rapport (JWT requis) |
+| `GET` | `/history` | Historique de l'utilisateur (JWT requis) |
+| `GET` | `/health` | Vérification de l'état du service |
+
+---
+
+## 🚀 Déploiement
+
+- **Base de données :** PostgreSQL managé sur [Neon](https://neon.tech) (offre gratuite).
+- **Application :** [Hugging Face Spaces](https://huggingface.co/spaces) (SDK Docker). Le conteneur lance l'API
+  et Streamlit ; le port public est `7860` (voir l'en-tête de ce README).
+- **Secrets :** les clés (`GROQ_API_KEY`, `TAVILY_API_KEY`, `JWT_SECRET_KEY`, `DATABASE_URL`...) sont définies dans
+  les *Settings → Secrets* du Space, jamais dans le code.
+- Une configuration `docker-compose.yml` (API + interface + PostgreSQL) est fournie pour un lancement local complet.
+
+---
+
+## 🛡 Sécurité
+
+- Mots de passe hachés avec `bcrypt` ; authentification par JWT.
+- Clés API et secrets lus depuis l'environnement, jamais versionnés (`.env` dans `.gitignore`).
+- Limites sur la taille des questions et le nombre de questions de suivi pour maîtriser la consommation de tokens.
+- Nouvelle session base de données après les recherches longues (les connexions inactives sont coupées par Neon).
+
+---
+
+## ⚠️ Limites connues
+
+- Le rapport est généré par un LLM à partir de sources web : **les informations doivent être vérifiées** avant tout usage sensible.
+- Durée d'une recherche : environ 20 à 90 secondes selon la charge de Groq et des sites consultés.
+- L'offre gratuite de Groq impose des limites de requêtes (rate limits) ; l'application gère les erreurs par des retries.
+- L'hébergement gratuit se met en veille après une période d'inactivité : la première requête est plus lente.
+- En démonstration cloud, la vérification par email peut être désactivée (`SKIP_EMAIL_VERIFICATION`).
+
+---
+
+## 🗺 Pistes d'amélioration
+
+- Mémoire entre conversations (réutiliser les recherches précédentes).
+- Exécution asynchrone des recherches avec affichage de la progression en direct (streaming de la trace).
+- Évaluation automatique de la qualité des rapports (jeu de questions de test, mesure de latence et de nombre de sources).
+- Vérification des sources par un agent critique avant la rédaction.
+- Envoi des emails via une API HTTPS (Brevo, Resend) pour activer la vérification en cloud.
+- Tests unitaires (`pytest`) et intégration continue (GitHub Actions).
+
+---
+
+## 👩‍💻 Auteure
+
+**Oumaima El-Ouahaby** — Master IASDO (Intelligence Artificielle, Sciences des Données et Optimisation),
+Faculté des Sciences de Meknès.
