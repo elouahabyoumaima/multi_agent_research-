@@ -5,7 +5,7 @@ de ses recherches web, lit les pages pertinentes, prend des notes, puis rédige 
 L'utilisateur peut ensuite poser des **questions de suivi**, retrouver son **historique** et **exporter** le rapport
 (PDF, Word, TXT).
 
-> 🌐 **Démo :** `(https://multi-agent-research-1.streamlit.app/)` &nbsp;|&nbsp; 💻 **Code :** (https://github.com/elouahabyoumaima/multi_agent_research-/tree/agent-upgrade)
+> 🌐 **Démo :** https://multi-agent-research-1.streamlit.app &nbsp;|&nbsp; 💻 **Code :** https://github.com/elouahabyoumaima/multi_agent_research-
 
 <!-- Ajouter ici une capture d'écran ou un GIF : ![Demo](docs/demo.gif) -->
 
@@ -103,7 +103,7 @@ L'agent (`agents/autonomous.py`) fonctionne en boucle : à chaque tour, le modè
 | Recherche web | Tavily API |
 | Lecture de pages | MCP (`mcp`, `mcp-server-fetch`) |
 | Base de données | SQLAlchemy, PostgreSQL (Neon) en production, SQLite en local |
-| Authentification | JWT (`python-jose`), hachage `bcrypt`, email SMTP |
+| Authentification | JWT (`python-jose`), hachage `bcrypt`, email (Brevo API / SMTP) |
 | Export | `fpdf2` (PDF), `python-docx` (Word) |
 | Déploiement | Streamlit Community Cloud, Docker |
 
@@ -184,6 +184,8 @@ Créer un fichier `.env` à la racine (il ne doit **jamais** être versionné) :
 | `GROQ_API_KEY` | ✅ | Clé API Groq |
 | `TAVILY_API_KEY` | ✅ | Clé API Tavily |
 | `JWT_SECRET_KEY` | ✅ | Secret de signature des JWT (longue chaîne aléatoire) |
+| `BREVO_API_KEY` | cloud | Clé API Brevo (envoi des emails en HTTPS, le SMTP étant bloqué sur les hébergeurs gratuits) |
+| `BREVO_SENDER_EMAIL` | cloud | Adresse expéditrice validée dans Brevo |
 | `SMTP_EMAIL` | local | Adresse Gmail qui envoie le code de vérification |
 | `SMTP_APP_PASSWORD` | local | Mot de passe d'application Gmail |
 | `DATABASE_URL` | non | URL PostgreSQL. Absente : SQLite local (`research_app.db`) |
@@ -234,7 +236,6 @@ Créer un fichier `.env` à la racine (il ne doit **jamais** être versionné) :
 - Durée d'une recherche : environ 20 à 90 secondes selon la charge de Groq et des sites consultés.
 - L'offre gratuite de Groq impose des limites de requêtes (rate limits) ; l'application gère les erreurs par des retries.
 - L'hébergement gratuit se met en veille après une période d'inactivité : la première requête est plus lente.
-- En démonstration cloud, la vérification par email peut être désactivée (`SKIP_EMAIL_VERIFICATION`).
 
 ---
 
@@ -244,7 +245,6 @@ Créer un fichier `.env` à la racine (il ne doit **jamais** être versionné) :
 - Exécution asynchrone des recherches avec affichage de la progression en direct (streaming de la trace).
 - Évaluation automatique de la qualité des rapports (jeu de questions de test, mesure de latence et de nombre de sources).
 - Vérification des sources par un agent critique avant la rédaction.
-- Envoi des emails via une API HTTPS (Brevo, Resend) pour activer la vérification en cloud.
 - Tests unitaires (`pytest`) et intégration continue (GitHub Actions).
 
 ---
