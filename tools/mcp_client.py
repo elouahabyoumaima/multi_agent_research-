@@ -1,10 +1,14 @@
 import asyncio
+import sys
+
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-# parametres pour lancer mcp-server-fetch comme sous-processus
+# parametres pour lancer mcp-server-fetch comme sous-processus.
+# sys.executable = le Python de l'environnement courant (venv local, ou venv de Streamlit Cloud):
+# "python" tout court pouvait pointer vers un autre Python, sans le module mcp_server_fetch.
 _server_params = StdioServerParameters(
-    command="python",
+    command=sys.executable,
     args=["-m", "mcp_server_fetch"],
 )
 

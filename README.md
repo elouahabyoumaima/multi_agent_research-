@@ -1,13 +1,3 @@
----
-title: Multi-Agent Research Assistant
-emoji: 🔎
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # 🔎 Multi-Agent Research Assistant
 
 Assistant de recherche basé sur un **agent IA autonome** : à partir d'une simple question, l'agent décide lui-même
@@ -15,7 +5,7 @@ de ses recherches web, lit les pages pertinentes, prend des notes, puis rédige 
 L'utilisateur peut ensuite poser des **questions de suivi**, retrouver son **historique** et **exporter** le rapport
 (PDF, Word, TXT).
 
-> 🌐 **Démo :** `<LIEN_DE_LA_DEMO>` &nbsp;|&nbsp; 💻 **Code :** https://github.com/elouahabyoumaima/multi_agent_research-
+> 🌐 **Démo :** https://multi-agent-research-1.streamlit.app &nbsp;|&nbsp; 💻 **Code :** https://github.com/elouahabyoumaima/multi_agent_research-
 
 <!-- Ajouter ici une capture d'écran ou un GIF : ![Demo](docs/demo.gif) -->
 
@@ -71,7 +61,7 @@ flowchart LR
     FU --> LLM
 ```
 
-Un seul conteneur Docker exécute l'API (port interne 8000) et l'interface Streamlit (port public 7860).
+L'API et l'interface tournent ensemble : dans un même processus sur Streamlit Community Cloud (`EMBEDDED_API=true`), ou dans un même conteneur Docker.
 
 ---
 
@@ -113,9 +103,9 @@ L'agent (`agents/autonomous.py`) fonctionne en boucle : à chaque tour, le modè
 | Recherche web | Tavily API |
 | Lecture de pages | MCP (`mcp`, `mcp-server-fetch`) |
 | Base de données | SQLAlchemy, PostgreSQL (Neon) en production, SQLite en local |
-| Authentification | JWT (`python-jose`), hachage `bcrypt`, email SMTP |
+| Authentification | JWT (`python-jose`), hachage `bcrypt`, email (Brevo API / SMTP) |
 | Export | `fpdf2` (PDF), `python-docx` (Word) |
-| Déploiement | Docker, Hugging Face Spaces |
+| Déploiement | Streamlit Community Cloud, Docker |
 
 ---
 
@@ -180,7 +170,7 @@ L'interface est disponible sur http://localhost:8501 et la documentation de l'AP
 
 ```bash
 docker build -t research-assistant .
-docker run -p 7860:7860 --env-file .env research-assistant
+docker run -p 7860:7860 --env-file .env research-assistant   # interface sur http://localhost:7860
 ```
 
 ---
@@ -194,11 +184,14 @@ Créer un fichier `.env` à la racine (il ne doit **jamais** être versionné) :
 | `GROQ_API_KEY` | ✅ | Clé API Groq |
 | `TAVILY_API_KEY` | ✅ | Clé API Tavily |
 | `JWT_SECRET_KEY` | ✅ | Secret de signature des JWT (longue chaîne aléatoire) |
+| `BREVO_API_KEY` | cloud | Clé API Brevo (envoi des emails en HTTPS, le SMTP étant bloqué sur les hébergeurs gratuits) |
+| `BREVO_SENDER_EMAIL` | cloud | Adresse expéditrice validée dans Brevo |
 | `SMTP_EMAIL` | local | Adresse Gmail qui envoie le code de vérification |
 | `SMTP_APP_PASSWORD` | local | Mot de passe d'application Gmail |
 | `DATABASE_URL` | non | URL PostgreSQL. Absente : SQLite local (`research_app.db`) |
 | `SKIP_EMAIL_VERIFICATION` | non | `true` : active le compte sans email (utile en cloud, où le SMTP est bloqué) |
 | `API_URL` | non | URL de l'API pour Streamlit (défaut : `http://localhost:8000`) |
+| `EMBEDDED_API` | non | `true` : lance l'API dans le processus Streamlit (déploiement cloud) |
 
 ---
 
@@ -220,10 +213,10 @@ Créer un fichier `.env` à la racine (il ne doit **jamais** être versionné) :
 ## 🚀 Déploiement
 
 - **Base de données :** PostgreSQL managé sur [Neon](https://neon.tech) (offre gratuite).
-- **Application :** [Hugging Face Spaces](https://huggingface.co/spaces) (SDK Docker). Le conteneur lance l'API
-  et Streamlit ; le port public est `7860` (voir l'en-tête de ce README).
+- **Application :** [Streamlit Community Cloud](https://streamlit.io/cloud) (gratuit, connecté au dépôt GitHub).
+  Avec `EMBEDDED_API=true`, l'API FastAPI est lancée dans le même processus que l'interface : une seule application à déployer.
 - **Secrets :** les clés (`GROQ_API_KEY`, `TAVILY_API_KEY`, `JWT_SECRET_KEY`, `DATABASE_URL`...) sont définies dans
-  les *Settings → Secrets* du Space, jamais dans le code.
+  *Settings → Secrets* de l'application, jamais dans le code.
 - Une configuration `docker-compose.yml` (API + interface + PostgreSQL) est fournie pour un lancement local complet.
 
 ---
@@ -243,7 +236,6 @@ Créer un fichier `.env` à la racine (il ne doit **jamais** être versionné) :
 - Durée d'une recherche : environ 20 à 90 secondes selon la charge de Groq et des sites consultés.
 - L'offre gratuite de Groq impose des limites de requêtes (rate limits) ; l'application gère les erreurs par des retries.
 - L'hébergement gratuit se met en veille après une période d'inactivité : la première requête est plus lente.
-- En démonstration cloud, la vérification par email peut être désactivée (`SKIP_EMAIL_VERIFICATION`).
 
 ---
 
@@ -253,7 +245,6 @@ Créer un fichier `.env` à la racine (il ne doit **jamais** être versionné) :
 - Exécution asynchrone des recherches avec affichage de la progression en direct (streaming de la trace).
 - Évaluation automatique de la qualité des rapports (jeu de questions de test, mesure de latence et de nombre de sources).
 - Vérification des sources par un agent critique avant la rédaction.
-- Envoi des emails via une API HTTPS (Brevo, Resend) pour activer la vérification en cloud.
 - Tests unitaires (`pytest`) et intégration continue (GitHub Actions).
 
 ---
