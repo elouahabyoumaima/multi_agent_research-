@@ -556,16 +556,12 @@ def login_page():
                     st.session_state.pending_username = None
                     st.rerun()
         else:
-            # la version change apres un succes: les champs du formulaire sont alors vides
-            v = str(st.session_state.get("signup_version", 0))
-            if st.session_state.pop("signup_success", False):
-                st.success("Compte cree. Va dans l'onglet Connexion pour te connecter.")
             with st.form("signup_form"):
-                username = st.text_input("Nom d'utilisateur", key="signup_username_" + v)
-                email = st.text_input("Email", key="signup_email_" + v)
-                phone = st.text_input("Telephone (optionnel)", key="signup_phone_" + v)
-                password = st.text_input("Mot de passe", type="password", key="signup_password_" + v)
-                password_confirm = st.text_input("Confirmer le mot de passe", type="password", key="signup_password_confirm_" + v)
+                username = st.text_input("Nom d'utilisateur", key="signup_username")
+                email = st.text_input("Email", key="signup_email")
+                phone = st.text_input("Telephone (optionnel)", key="signup_phone")
+                password = st.text_input("Mot de passe", type="password", key="signup_password")
+                password_confirm = st.text_input("Confirmer le mot de passe", type="password", key="signup_password_confirm")
                 submitted = st.form_submit_button("Creer le compte", use_container_width=True, type="primary")
                 if submitted:
                     try:
@@ -579,9 +575,7 @@ def login_page():
                         resp = requests.post(API_URL + "/auth/signup", json=payload)
                         if resp.status_code == 200:
                             if resp.json().get("auto_verified"):
-                                st.session_state.signup_version = int(v) + 1
-                                st.session_state.signup_success = True
-                                st.rerun()
+                                st.success("Compte cree. Va dans l'onglet Connexion pour te connecter.")
                             else:
                                 if not resp.json().get("email_sent"):
                                     st.warning("Compte cree, mais l'email n'a pas pu etre envoye. Utilise 'Renvoyer le code'.")
